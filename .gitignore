@@ -9,7 +9,7 @@ __pycache__/
 *.db
 *.sqlite3
 
-best_model.keras
+*.keras
 
 # Ignorar arquivos de configuração do sistema
 *.log
