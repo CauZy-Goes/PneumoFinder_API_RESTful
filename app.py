@@ -1,17 +1,17 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
-import pneumo_finder_service as pf
+import pneumonia_service as pf
 
 app = Flask(__name__)
 
 # Permitir CORS para qualquer origem (para fins de desenvolvimento)
 CORS(app)
 
-detector = pf.DetectorDePneumonia("best_model.keras")
+detector = pf.DetectorDePneumonia("pneumonia_model.keras")
 
-@app.route("/diagnosticar", methods=["POST"])
-def diagnosticar():
+@app.route("/diagnosticar_pneumonia", methods=["POST"])
+def diagnosticar_pneumonia():
     if "imagem" not in request.files:
         return jsonify({"erro": "Nenhuma imagem enviada."}), 400
 
