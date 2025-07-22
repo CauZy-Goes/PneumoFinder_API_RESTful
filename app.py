@@ -1,14 +1,16 @@
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
+
 import pneumonia_service as pf
+import pulmao_service as pulm
 
 app = Flask(__name__)
-
-# Permitir CORS para qualquer origem (para fins de desenvolvimento)
 CORS(app)
 
-detector = pf.DetectorDePneumonia("pneumonia_model.keras")
+# Inicializa os dois detectores
+detector_pneumonia = pf.DetectorDePneumonia("pneumonia_model.keras")
+detector_pulmao = pulm.DetectorDePulmao("pulmao_model.keras")
 
 @app.route("/diagnosticar_pneumonia", methods=["POST"])
 def diagnosticar_pneumonia():
@@ -20,17 +22,77 @@ def diagnosticar_pneumonia():
     imagem.save(caminho_temp)
 
     try:
-        classe, confianca = detector.diagnosticar_imagem(caminho_temp)
+        classe, confianca = detector_pneumonia.diagnosticar_imagem(caminho_temp)
         os.remove(caminho_temp)
         response = {
-        "classe": str(classe),
-        "confianca": float(round(confianca.item(), 2))  # .item() garante conversão de np.float32 para float
+            "classe": str(classe),
+            "confianca": float(round(confianca.item(), 2))
         }
         print("Resposta gerada para o front:", response)
         return jsonify(response)
     except Exception as e:
         return jsonify({"erro": str(e)}), 500
 
+
+@app.route("/verificar_pulmao", methods=["POST"])
+def verificar_pulmao():
+    if "imagem" not in request.files:
+        return jsonify({"erro": "Nenhuma imagem enviada."}), 400
+
+    imagem = request.files["imagem"]
+    caminho_temp = os.path.join("temp", imagem.filename)
+    imagem.save(caminho_temp)
+
+    try:
+        classe, confianca = detector_pulmao.detectar_imagem(caminho_temp)
+        os.remove(caminho_temp)
+        response = {
+            "classe": str(classe),
+            "confianca": float(round(confianca.item(), 2))
+        }
+        print("Resposta gerada para o front (pulmão):", response)
+        return jsonify(response)
+    except Exception as e:
+        return jsonify({"erro": str(e)}), 500
+
+
+@app.route("/diagnostico_completo", methods=["POST"])
+def diagnostico_completo():
+    if "imagem" not in request.files:
+        return jsonify({"erro": "Nenhuma imagem enviada."}), 400
+
+    imagem = request.files["imagem"]
+    caminho_temp = os.path.join("temp", imagem.filename)
+    imagem.save(caminho_temp)
+
+    try:
+        # Primeiro: verifica se é um pulmão
+        classe_pulmao, confianca_pulmao = detector_pulmao.detectar_imagem(caminho_temp)
+
+        if classe_pulmao != "PULMÃO":
+            os.remove(caminho_temp)
+            return jsonify({
+                "classe": "NÃO É PULMÃO",
+                "confianca": float(round(confianca_pulmao.item(), 2))
+            })
+
+        # Segundo: diagnostica pneumonia
+        classe_pneumonia, confianca_pneumonia = detector_pneumonia.diagnosticar_imagem(caminho_temp)
+        os.remove(caminho_temp)
+
+        response = {
+            "classe_pulmao": "PULMÃO",
+            "confianca_pulmao": float(round(confianca_pulmao.item(), 2)),
+            "classe_pneumonia": classe_pneumonia,
+            "confianca_pneumonia": float(round(confianca_pneumonia.item(), 2))
+        }
+        print("Resposta completa para o front:", response)
+        return jsonify(response)
+
+    except Exception as e:
+        return jsonify({"erro": str(e)}), 500
+
+
 if __name__ == "__main__":
     os.makedirs("temp", exist_ok=True)
-    app.run(debug=True , port=5001) #Troquei a porta
+    app.run(debug=True, port=5001)
