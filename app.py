@@ -2,8 +2,9 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
 
-import pneumonia_service as pf
-import pulmao_service as pulm
+from service import pneumonia_service as pf
+from service import pulmao_service as pulm
+
 
 app = Flask(__name__)
 CORS(app)
@@ -72,7 +73,7 @@ def diagnostico_completo():
         if classe_pulmao != "PULMÃO":
             os.remove(caminho_temp)
             return jsonify({
-                "classe": "NÃO É PULMÃO",
+                "classe_pulmao": "NÃO É PULMÃO",
                 "confianca": float(round(confianca_pulmao.item(), 2))
             })
 
