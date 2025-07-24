@@ -21,7 +21,7 @@ __pycache__/
 .idea/
 *.sublime-workspace
 *.sublime-project
-
+.env
 # Ignorar arquivos gerados durante a instalação do pacote
 *.egg
 *.egg-info/
