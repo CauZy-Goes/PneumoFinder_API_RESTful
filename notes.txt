@@ -1,3 +1,9 @@
 python -m venv venv
 
 venv\Scripts\activate
+
+pip freeze > requirements.txt
+
+ https://aa17460cd9f6.ngrok-free.app
+
+ ngrok http 5000

@@ -26,7 +26,7 @@ def webhook():
     num_media = int(request.form.get("NumMedia", 0))
 
     if num_media == 0:
-        resp.message("Oi! Por favor, envie uma imagem de raio-x do pulmão para análise.")
+        resp.message("Oi! Por favor, envie uma imagem de raio-x do pulmão para análise. 🫁")
         return str(resp)
 
     media_url = request.form.get("MediaUrl0")
