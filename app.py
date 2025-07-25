@@ -5,6 +5,9 @@ import os
 from service import pneumonia_service as pf
 from service import pulmao_service as pulm
 
+from dotenv import load_dotenv
+load_dotenv()
+
 
 app = Flask(__name__)
 CORS(app)

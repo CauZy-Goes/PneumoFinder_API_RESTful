@@ -34,7 +34,10 @@ def webhook():
     try:
         image_response = requests.get(media_url, auth=HTTPBasicAuth(account_sid, auth_token))
         image_response.raise_for_status()
-    except Exception:
+    except Exception as e:
+        print("SID:", account_sid)
+        print("TOKEN:", auth_token)
+        print("Erro ao baixar imagem:", e)
         resp.message("Erro ao baixar a imagem. Tente novamente, por favor.")
         return str(resp)
 
