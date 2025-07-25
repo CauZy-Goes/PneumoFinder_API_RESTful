@@ -53,7 +53,7 @@ def webhook():
         classe_pulmao, confianca_pulmao = detector_pulmao.detectar_imagem(filepath)
 
         if classe_pulmao != "PULMÃO":
-            mensagem = f"A imagem enviada não parece ser um raio-x de pulmão.\nConfiança: {confianca_pulmao*100:.1f}% ❌"
+            mensagem = f"⛔ A imagem enviada não parece ser um raio-x de pulmão.\n❌ Confiança: {confianca_pulmao*100:.1f}% "
             resp.message(mensagem)
             os.remove(filepath)
             return str(resp)
@@ -64,7 +64,7 @@ def webhook():
 
         if classe_pneumonia == "PNEUMONIA":
             mensagem = (
-                f"✅ A imagem é de um pulmão.\n"
+                f"🆘 A imagem é de um pulmão.\n"
                 f"🚨 **Diagnóstico**: Pneumonia detectada com confiança de {confianca_pneumonia*100:.1f}%."
             )
         else:
