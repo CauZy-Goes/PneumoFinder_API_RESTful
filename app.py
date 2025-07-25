@@ -10,8 +10,8 @@ app = Flask(__name__)
 CORS(app)
 
 # Inicializa os dois detectores
-detector_pneumonia = pf.DetectorDePneumonia("pneumonia_model.keras")
-detector_pulmao = pulm.DetectorDePulmao("pulmao_model.keras")
+detector_pneumonia = pf.DetectorDePneumonia("models/pneumonia_model.keras")
+detector_pulmao = pulm.DetectorDePulmao("models/pulmao_model.keras")
 
 @app.route("/diagnosticar_pneumonia", methods=["POST"])
 def diagnosticar_pneumonia():
