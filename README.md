@@ -1,4 +1,4 @@
-# 🫁 PneumoFinder APIrestful
+# 🫁 PneumoFinder APIRestful
 
 ![Python](https://img.shields.io/badge/Python-3.x-blue?logo=python)  ![Flask](https://img.shields.io/badge/Flask-API-lightgrey?logo=flask)  ![TensorFlow](https://img.shields.io/badge/TensorFlow-CNN-orange?logo=tensorflow)  ![Twilio](https://img.shields.io/badge/Twilio-WhatsApp-green?logo=twilio)  ![Status](https://img.shields.io/badge/Status-Em%20Desenvolvimento-yellow)  
 
