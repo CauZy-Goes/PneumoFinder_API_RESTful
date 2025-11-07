@@ -1,130 +1,155 @@
+# service/pneumonia_service.py
 import os
-import uuid
 import numpy as np
 import cv2
 import tensorflow as tf
 from tensorflow.keras.models import load_model
-from datetime import datetime
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image
-from reportlab.lib.styles import getSampleStyleSheet
+from tensorflow.keras.preprocessing import image
+import matplotlib.pyplot as plt
+
 
 class DetectorDePneumoniaService:
-    def __init__(self, caminho_modelo):
+    """
+    Serviço para diagnóstico de pneumonia com Grad-CAM de alta qualidade.
+    Saída: 4 imagens PNG em pasta por imagem (sem PDF).
+    """
+    def __init__(self, caminho_modelo, tamanho_img=(224, 224)):
+        self.tamanho_img = tamanho_img
         self.model = load_model(caminho_modelo)
-        self.img_size = (224, 224)
 
-        # === Identifica a última camada Conv2D dentro da ResNet50 ===
-        base_model = self.model.layers[0]
+        # Forçar inicialização do modelo (resolve "never been called")
+        dummy_input = tf.zeros((1, *tamanho_img, 3))
+        _ = self.model(dummy_input, training=False)  # Força build
+
+        # Encontrar ResNet50 base
+        self.base_model = None
+        for layer in self.model.layers:
+            if isinstance(layer, tf.keras.Model) and 'resnet' in layer.name.lower():
+                self.base_model = layer
+                break
+        if not self.base_model:
+            raise ValueError("Base ResNet50 não encontrada no modelo!")
+
+        # Última camada convolucional
         self.last_conv_layer = None
-        for layer in reversed(base_model.layers):
+        for layer in reversed(self.base_model.layers):
             if isinstance(layer, tf.keras.layers.Conv2D):
                 self.last_conv_layer = layer
                 break
+        if not self.last_conv_layer:
+            raise ValueError("Nenhuma camada Conv2D encontrada!")
 
-        if self.last_conv_layer is None:
-            raise ValueError("Nenhuma camada Conv2D encontrada na ResNet50!")
+        print(f"Grad-CAM pronto: última conv → {self.last_conv_layer.name}")
+        print(f"Modelo carregado: {caminho_modelo}")
 
-    def preprocessar_imagem(self, caminho_imagem):
-        """Carrega e prepara a imagem para o modelo."""
-        img = tf.keras.preprocessing.image.load_img(caminho_imagem, target_size=self.img_size)
-        img_arr = tf.keras.preprocessing.image.img_to_array(img)
-        img_arr = np.expand_dims(img_arr, axis=0)
-        img_arr = tf.keras.applications.resnet50.preprocess_input(img_arr)
-        return img_arr
-        
-    def gerar_gradcam(self, img_arr, intensidade=0.7):
-        """
-        Gera o mapa Grad-CAM funcional e visível.
-        Corrige a detecção da última camada convolucional e garante contraste.
-        """
+    def _preprocessar(self, caminho_imagem):
+        img = image.load_img(caminho_imagem, target_size=self.tamanho_img)
+        arr = image.img_to_array(img)
+        arr = np.expand_dims(arr, axis=0)
+        arr = tf.keras.applications.resnet50.preprocess_input(arr.copy())
+        return img, arr
 
-        # Identifica o modelo base (ResNet50) dentro do modelo composto
-        base_model = None
-        for layer in self.model.layers:
-            if isinstance(layer, tf.keras.Model):
-                base_model = layer
-                break
-
-        if base_model is None:
-            base_model = self.model
-
-        # Garante que existe camada Conv2D
-        last_conv_layer = None
-        for layer in reversed(base_model.layers):
-            if isinstance(layer, tf.keras.layers.Conv2D):
-                last_conv_layer = layer
-                break
-
-        if last_conv_layer is None:
-            raise ValueError("Nenhuma camada Conv2D encontrada para Grad-CAM.")
-
+    def _gradcam_alta_qualidade(self, img_array):
+        # Modelo Grad-CAM: entrada → última conv + saída final
         grad_model = tf.keras.Model(
-            inputs=base_model.input,
-            outputs=[last_conv_layer.output, base_model.output]
+            inputs=self.model.input,
+            outputs=[self.last_conv_layer.output, self.model.output]
         )
 
         with tf.GradientTape() as tape:
-            conv_outputs, predictions = grad_model(img_arr)
-            class_channel = predictions[:, 0]
+            conv_outputs, predictions = grad_model(img_array, training=False)
+            pred = predictions[0][0]
+            class_score = pred if pred > 0.5 else 1 - pred
 
-        grads = tape.gradient(class_channel, conv_outputs)
-        grads = tf.where(tf.math.is_nan(grads), 0.0, grads)
-        grads = tf.where(tf.math.is_inf(grads), 0.0, grads)
+        # Gradientes
+        grads = tape.gradient(class_score, conv_outputs)
+        if grads is None:
+            grads = tf.zeros_like(conv_outputs)
+
+        # Ponderação por canal
         weights = tf.reduce_mean(grads, axis=(0, 1, 2))
+        cam = tf.reduce_sum(weights[None, None, :] * conv_outputs[0], axis=-1).numpy()
 
-        cam = tf.reduce_sum(tf.multiply(weights, conv_outputs), axis=-1)[0]
+        # ReLU + normalização
         cam = np.maximum(cam, 0)
-        cam = cam / (np.max(cam) + 1e-8)
-        cam = cv2.resize(cam, self.img_size)
+        if cam.max() > 0:
+            cam = cam / cam.max()
 
-        # Aumenta contraste e visibilidade
-        cam = np.power(cam, 1.2)
+        # Super-resolução + suavização profissional
+        h, w = self.tamanho_img
+        cam = cv2.resize(cam, (w * 4, h * 4), interpolation=cv2.INTER_CUBIC)
+        cam = cv2.GaussianBlur(cam, (0, 0), sigmaX=2.5)
+        cam = cv2.resize(cam, (w, h), interpolation=cv2.INTER_CUBIC)
+
+        # Reforço de contraste (gamma) + normalização final
+        cam = np.power(cam, 0.7)
         cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
 
         return cam
 
+    def _overlay_profissional(self, img_bgr, cam, alpha=0.65):
+        # Heatmap com JET: vermelho em alta ativação
+        heatmap = cv2.applyColorMap(np.uint8(255 * cam), cv2.COLORMAP_JET)
+        heatmap = cv2.resize(heatmap, (img_bgr.shape[1], img_bgr.shape[0]), cv2.INTER_CUBIC)
+        heatmap = cv2.GaussianBlur(heatmap, (3, 3), 0)
+        return cv2.addWeighted(img_bgr, 1 - alpha, heatmap, alpha, 0)
 
-    def diagnosticar_com_explicacao(self, caminho_imagem):
-        """Executa o diagnóstico e gera as explicações visuais + PDF."""
-        img_arr = self.preprocessar_imagem(caminho_imagem)
+    def diagnosticar_com_explicacao(self, caminho_imagem, pasta_saida="relatorios"):
+        nome = os.path.splitext(os.path.basename(caminho_imagem))[0]
+        pasta = os.path.join(pasta_saida, nome)
+        os.makedirs(pasta, exist_ok=True)
 
+        img_pil, img_arr = self._preprocessar(caminho_imagem)
         pred = self.model.predict(img_arr, verbose=0)[0][0]
         classe = "PNEUMONIA" if pred > 0.5 else "NORMAL"
         confianca = pred if pred > 0.5 else 1 - pred
 
-        cam = self.gerar_gradcam(img_arr)
+        print(f"{nome}: {classe} ({confianca:.1%})")
 
-        original = cv2.imread(caminho_imagem)
-        original = cv2.resize(original, self.img_size)
-        heatmap = cv2.applyColorMap(np.uint8(255 * cam), cv2.COLORMAP_JET)
-        overlay = cv2.addWeighted(original, 0.6, heatmap, 0.4, 0)
+        # Grad-CAM
+        cam = self._gradcam_alta_qualidade(img_arr)
+        img_bgr = cv2.cvtColor(np.array(img_pil), cv2.COLOR_RGB2BGR)
+        overlay = self._overlay_profissional(img_bgr, cam)
 
-        folder_name = f"{os.path.splitext(os.path.basename(caminho_imagem))[0]}_{uuid.uuid4().hex[:5]}"
-        output_dir = os.path.join("relatorios", folder_name)
-        os.makedirs(output_dir, exist_ok=True)
+        def salvar(fig, caminho, dpi=300):
+            fig.savefig(caminho, dpi=dpi, bbox_inches='tight', facecolor='white', pad_inches=0.1)
+            plt.close(fig)
 
-        cv2.imwrite(f"{output_dir}/original.jpg", original)
-        cv2.imwrite(f"{output_dir}/heatmap.jpg", heatmap)
-        cv2.imwrite(f"{output_dir}/gradcam_overlay.jpg", overlay)
+        # 01 Original
+        fig, ax = plt.subplots(figsize=(6, 6))
+        ax.imshow(img_pil)
+        ax.set_title(f"Original\n{classe} ({confianca:.1%})", fontsize=16, pad=20, weight='bold')
+        ax.axis('off')
+        salvar(fig, f"{pasta}/01_original.png")
 
-        self._gerar_pdf(classe, confianca, output_dir)
-        return classe, confianca, output_dir
+        # 02 Grad-CAM
+        fig, ax = plt.subplots(figsize=(6, 6))
+        im = ax.imshow(cam, cmap='jet', vmin=0, vmax=1)
+        ax.set_title("Grad-CAM (Ativação)", fontsize=16, pad=20, weight='bold')
+        ax.axis('off')
+        cbar = plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        cbar.set_label("Intensidade", rotation=270, labelpad=15, fontsize=12)
+        salvar(fig, f"{pasta}/02_gradcam.png")
 
-    def _gerar_pdf(self, classe, confianca, output_folder):
-        """Gera o relatório PDF com diagnóstico e Grad-CAM."""
-        nome_pdf = os.path.join(output_folder, "relatorio.pdf")
-        doc = SimpleDocTemplate(nome_pdf)
-        styles = getSampleStyleSheet()
+        # 03 Overlay
+        fig, ax = plt.subplots(figsize=(6, 6))
+        ax.imshow(cv2.cvtColor(overlay, cv2.COLOR_BGR2RGB))
+        ax.set_title("Foco do Modelo", fontsize=16, pad=20, weight='bold')
+        ax.axis('off')
+        salvar(fig, f"{pasta}/03_overlay.png")
 
-        elementos = [
-            Paragraph("Relatório de Diagnóstico de Pneumonia com IA", styles["Title"]),
-            Spacer(1, 20),
-            Paragraph(f"Diagnóstico: <b>{classe}</b>", styles["Normal"]),
-            Paragraph(f"Confiança: {confianca:.2%}", styles["Normal"]),
-            Paragraph(f"Data: {datetime.now().strftime('%d/%m/%Y %H:%M')}", styles["Normal"]),
-            Spacer(1, 20),
-            Paragraph("Mapa de ativação (Grad-CAM):", styles["Heading3"]),
-            Image(os.path.join(output_folder, "gradcam_overlay.jpg"), width=300, height=300)
-        ]
+        # 04 Confiança
+        fig, ax = plt.subplots(figsize=(5, 4))
+        bars = ax.bar(['NORMAL', 'PNEUMONIA'], [1 - pred, pred],
+                      color=['#2ca02c', '#d62728'], edgecolor='black', linewidth=1.2)
+        ax.set_ylim(0, 1)
+        ax.set_title("Confiança", fontsize=16, weight='bold')
+        for bar in bars:
+            h = bar.get_height()
+            ax.text(bar.get_x() + bar.get_width()/2, h + 0.03, f'{h:.1%}',
+                    ha='center', va='bottom', fontweight='bold', fontsize=12)
+        ax.grid(True, axis='y', alpha=0.3, linestyle='--')
+        salvar(fig, f"{pasta}/04_confianca.png")
 
-        doc.build(elementos)
+        print(f"Relatório salvo em: {pasta}/")
+        return classe, confianca, pasta
