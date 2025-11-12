@@ -7,7 +7,6 @@ from tensorflow.keras.models import load_model, Model
 from tensorflow.keras.preprocessing import image
 import matplotlib.pyplot as plt
 
-
 class DetectorDePneumoniaService:
     def __init__(self, caminho_modelo, tamanho_img=(224, 224)):
         self.tamanho_img = tamanho_img
@@ -44,7 +43,7 @@ class DetectorDePneumoniaService:
         arr = tf.keras.applications.resnet50.preprocess_input(arr.copy())
         return img, arr
 
-    def _gradcam_smooth(self, img_array, n_samples=30, noise_level=0.2):
+    def _gradcam_smooth(self, img_array, n_samples=30, noise_level=0.2, power=3):
         grad_model = Model(
             inputs=self.base_model.input,
             outputs=[self.last_conv.output, self.base_model.output]
@@ -76,14 +75,13 @@ class DetectorDePneumoniaService:
 
         cam = cam_accum / n_samples
         cam = np.maximum(cam, 0)
-
-        # Destacar apenas o ponto central mais relevante
-        cam = cam**2
+        cam = cam**power
         cam /= (cam.max() + 1e-8)
 
+        # Redimensiona e aplica suavização
         h, w = self.tamanho_img
         cam = cv2.resize(cam, (w, h), interpolation=cv2.INTER_CUBIC)
-        cam = cv2.GaussianBlur(cam, (3, 3), sigmaX=1.5)
+        cam = cv2.GaussianBlur(cam, (5, 5), sigmaX=2)
         cam = (cam - cam.min()) / (cam.max() - cam.min() + 1e-8)
 
         return cam
@@ -92,12 +90,13 @@ class DetectorDePneumoniaService:
         cam_uint8 = np.uint8(255 * cam)
         heatmap = cv2.applyColorMap(cam_uint8, cv2.COLORMAP_HOT)
         heatmap = heatmap.astype(np.float32)
-        heatmap[:, :, 2] = np.clip(heatmap[:, :, 2] * cam, 0, 255)  # vermelho central
+        heatmap[:, :, 2] *= cam**2 * 2.0  # intensifica vermelho no centro
         heatmap[:, :, 0] *= 0.2
         heatmap[:, :, 1] *= 0.4
+        heatmap = np.clip(heatmap, 0, 255)
         return heatmap.astype(np.uint8)
 
-    def _overlay(self, img_bgr, heatmap, alpha=0.68):
+    def _overlay(self, img_bgr, heatmap, alpha=0.7):
         heatmap = cv2.resize(heatmap, (img_bgr.shape[1], img_bgr.shape[0]), cv2.INTER_CUBIC)
         return cv2.addWeighted(img_bgr, 1 - alpha, heatmap, alpha, 0)
 
@@ -147,7 +146,7 @@ class DetectorDePneumoniaService:
 
         # 04 Confiança
         fig, ax = plt.subplots(figsize=(5,4))
-        bars = ax.bar(['NORMAL', 'PNEUMONIA'], [1-pred, pred], color=['#2ca02c', '#d62728'], edgecolor='black')
+        bars = ax.bar(['NORMAL', 'PNEUMONIA'], [1-pred, pred], color=['#2ca02c','#d62728'], edgecolor='black')
         for b in bars:
             h = b.get_height()
             ax.text(b.get_x() + b.get_width()/2, h + 0.03, f'{h:.1%}', ha='center', fontweight='bold', fontsize=12)
