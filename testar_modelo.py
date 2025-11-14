@@ -3,7 +3,7 @@ import os
 from service.pneumonia_service import DetectorDePneumoniaService
 
 if __name__ == "__main__":
-    detector = DetectorDePneumoniaService("models/best_model.keras")
+    detector = DetectorDePneumoniaService("models/best_model_d1.keras")
     
     pasta_imgs = "imgs"
     formatos_validos = (".png", ".jpg", ".jpeg", ".bmp")

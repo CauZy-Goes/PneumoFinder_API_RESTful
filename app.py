@@ -8,7 +8,7 @@ from tempfile import mkdtemp
 app = Flask(__name__)
 
 # Inicializa o detector (carrega o modelo na memória uma única vez)
-DETECTOR = DetectorDePneumoniaService(caminho_modelo="models/best_model.keras")
+DETECTOR = DetectorDePneumoniaService(caminho_modelo="models/best_model_d1.keras")
 
 
 @app.route("/diagnosticar", methods=["POST"])
