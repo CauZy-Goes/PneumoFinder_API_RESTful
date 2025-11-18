@@ -9,6 +9,7 @@ __pycache__/
 *.db
 *.sqlite3
 
+*.kerass
 *.keras
 
 # Ignorar arquivos de configuração do sistema
